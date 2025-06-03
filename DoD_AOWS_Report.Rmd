@@ -1,0 +1,1172 @@
+---
+title: "DoD AOWS Report"
+author: "Kent Connell"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+
+library(tidyverse)
+library(janitor)
+library(ggpubr)
+library(ggrepel)
+library(sf)
+library(likert)
+library(grid)
+```
+
+```{r data input, include = FALSE}
+
+# AOWS roster
+roster <- read_csv('roster.csv') |>
+  clean_names()
+
+aows_ids <- roster$student_id
+
+# Students data sheet from Openbook
+# Do appear in Student Terms where Term is 2022SP - 2024SU, Enrolled is Yes, and Instructional Area is Semester Credit
+# Every column selected
+students <- read_csv('students.csv') |>
+  clean_names() |>
+  mutate(student_id = as.numeric(student_id),
+         Program = case_when(student_id %in% aows_ids ~ 'AOWS',
+                             .default = 'Non-AOWS'))
+
+# Student terms data sheet from Openbook
+# Do appear in Student Terms where Term is 2022SP - 2024SU, Enrolled is Yes, and Instructional Area is Semester Credit
+# Every column selected
+terms <- read_csv('terms.csv') |>
+  clean_names() |>
+  mutate(student_id = as.numeric(student_id),
+         Program = case_when(student_id %in% aows_ids ~ 'AOWS',
+                             .default = 'Non-AOWS'))
+
+# Student degrees data sheet from Openbook
+# Do appear in Student Terms where Term is 2022SP - 2024SU, Enrolled is Yes, and Instructional Area is Semester Credit
+# Every column selected
+degrees <- read_csv('degrees.csv') |>
+  clean_names() |>
+  mutate(student_id = as.numeric(student_id),
+         Program = case_when(student_id %in% aows_ids ~ 'AOWS',
+                             .default = 'Non-AOWS'))
+
+
+# Student classes data sheet from Openbook
+# Do appear in Student Terms where Term is 2022SP - 2024SU, Enrolled is Yes, and Instructional Area is Semester Credit
+# Every column selected
+classes <- read_csv('classes.csv') |>
+  clean_names() |>
+  mutate(student_id = as.numeric(student_id),
+         Program = case_when(student_id %in% aows_ids ~ 'AOWS',
+                             .default = 'Non-AOWS'))
+
+
+
+# NSC data sheet from Openbook
+# Do appear in Student Terms where Term is 2022SP - 2024SU, Enrolled is Yes, and Instructional Area is Semester Credit
+nsc <- read_csv('nsc.csv') |>
+  clean_names() |>
+  mutate(student_id = as.numeric(student_id),
+         Program = case_when(student_id %in% aows_ids ~ 'AOWS',
+                             .default = 'Non-AOWS'))
+
+
+# Exit survey from Qualtrics (controlled by IE shared account)
+# Last updated 6/21/2024
+# Manually add new AOWS respondents to csv before running
+
+exit <- read_csv('exit_survey.csv') |>
+  clean_names()
+
+
+
+#Professional development survey from Qualtrics (controlled by IE shared account)
+
+pd <- read_csv('professional_development.csv') |>
+  clean_names()
+
+```
+
+# Objective 1
+
+------------------------------------------------------------------------
+
+#### \* *600 students enrolled in cohort program.*
+
+We exceeded our stated goal of supporting 600 students in the AOWS program. In sum, there were 801 participants in the program. 93% identified as female, and 85% were students of color. Ages ranged from 17 - 64, and participants lived throughout the entire city of Chicago.
+
+```{r basic demographics, fig.align = 'center'}
+
+# 3 students not present in students datasheet so n = 798
+
+######## Gender
+# Summarize students by gender
+demo_gender <- students |>
+  filter(student_id %in% aows_ids) |>
+  group_by(gender) |>
+  summarize(count = n()) |>
+# Remove missing data
+  filter(gender != '(Blank)') |>
+  mutate(metric = 'Gender',
+         # gender missing for four students so n = 794
+         prop = count/794)
+
+# Compute the position of labels for the gender pie chart
+dg2 <- demo_gender |>
+  mutate(csum = rev(cumsum(rev(prop))), 
+         pos = prop/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), prop/2, pos))
+
+# create pie chart for gender
+ggplot(demo_gender, aes(x = '', y = prop, fill = fct_inorder(gender))) +
+  geom_col(width = 1, color = 'black') +
+  coord_polar(theta = 'y') +
+  scale_fill_manual(values = c('#E1251B', '#E3E1DB')) +
+  labs(x = NULL, y = NULL,
+       title = 'AOWS Participants by Gender') +
+  guides(fill = guide_legend(title = 'Gender')) +
+  geom_label_repel(data = dg2,
+                   aes(x = 1.5, y = pos, label = scales::percent(demo_gender$prop, accuracy = 1)),
+                   size = 5, nudge_x = 0.25, show.legend = FALSE) +
+  theme_void(base_size = 16) +
+  theme(legend.position = 'right',
+        plot.title = element_text(hjust = 0.5)) 
+##############
+
+####### Ethnicity
+demo_ethnicity <- students |>
+  # combine multiracial and American Indian category
+  mutate(ethnicity = case_when(
+    ethnicity == 'Multi-Racial Non-Hispanic' ~ 'Other',
+    ethnicity == 'Am. Ind' ~ 'Other',
+    .default = ethnicity
+  )) |>
+  filter(student_id %in% aows_ids) |>
+  group_by(ethnicity) |>
+  summarize(count = n()) |>
+  mutate(metric = 'Race/Ethnicity',
+         prop = count/798) |>
+  arrange(prop) |>
+  mutate(ethnicity = factor(ethnicity, levels = c('Other',
+    'Asian',
+    'White',
+    'Hispanic',
+    'Black')))
+
+de2 <- demo_ethnicity |>
+  mutate(csum = rev(cumsum(rev(prop))), 
+         pos = prop/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), prop/2, pos))
+
+ggplot(demo_ethnicity, aes(x = '', y = prop, fill = fct_inorder(ethnicity))) +
+  geom_col(width = 1, color = 'black') +
+  coord_polar(theta = 'y') +
+  #excel color scale
+  scale_fill_manual(values = c('#FFC000','#8FAADC','#A6A6A6','#002060','#C00000')) +
+  labs(x = NULL, y = NULL,
+       title = 'AOWS Participants by Race/Ethnicity') +
+  guides(fill = guide_legend(title = 'Race/Ethnicity')) +
+  geom_label_repel(data = de2,
+                   aes(x = 1.5, y = pos, label = scales::percent(demo_ethnicity$prop, accuracy = 1)),
+                   size = 5, nudge_x = 0.2, show.legend = FALSE,
+                   color = 'white') +
+  theme_void(base_size = 16) +
+  theme(legend.position = 'right',
+        plot.title = element_text(hjust = 0.5)) 
+#######
+
+####### Age
+demo_age <- students |>
+    filter(student_id %in% aows_ids) |>
+    group_by(age_group) |>
+    summarize(count = n()) |>
+    mutate(metric = 'Age',
+           prop = count/798) 
+  
+  ggbarplot(demo_age, x = 'age_group', y = 'prop',
+            fill = '#E1251B',
+            label = scales::percent(demo_age$prop, accuracy = .1)) +
+    labs(x = NULL, y = NULL,
+         title = 'AOWS Participants by Age') +
+  yscale("percent", .format = TRUE) +
+    theme_classic(base_size = 16) +
+    theme(legend.position = 'none',
+          plot.title = element_text(hjust = 0.5))
+####### 
+
+####### Zip codes
+
+#read in shapefiles of Chicago zip codes
+zip_shapefile <- read_sf('Shapefiles/Zip_Codes.shp')  
+
+  
+  #Count of  ZIP code
+  zip_count <- students |>
+    filter(student_id %in% aows_ids) |>
+    mutate(zip_code = as.character(zip_code)) |>
+    group_by(zip_code) |>
+    summarize(count = n()) |>
+    rename(ZIP = zip_code)
+  
+  #Merge shapefile and students dataframe
+  zip_shapefile_merge <- zip_shapefile |>
+    left_join(zip_count, by = c("ZIP")) |>
+    replace_na(list(n = 0))
+  
+  points <- cbind(zip_shapefile_merge, st_coordinates(st_centroid(zip_shapefile_merge$geometry))) |>
+    mutate(count = case_when(is.na(count) ~ 0,
+                             .default = count))
+
+  #Choropleth map
+  ggplot() +
+    geom_sf(data = points, aes(fill = count)) +
+    theme_void(base_size = 14) +
+    scale_fill_gradient(low = "white", high = "red", name = "Participants") +
+    geom_text(size = 3, 
+              data = points, 
+              aes(X, Y, label = ifelse(ZIP == "60612", paste("MXC"), " ")))  
+```
+
+------------------------------------------------------------------------
+
+Most AOWS students earned fewer than 12 credits per term. During fall and spring semesters over half of the AOWS students were enrolled part-time. On average, AOWS students earn 1.4 more credits per term than non-AOWS students.
+
+```{r credits per term, fig.align = 'center'}
+
+#calculate the number of credits AOWS students per term they were enrolled
+credits <- terms |>
+  filter(term %in% c('2022SP', '2022SU', '2022FA',
+                     '2023SP', '2023SU', '2023FA',
+                     '2024SP', '2024SU') &
+         instructional_area == 'Semester Credit' &
+         enrolled == 'Yes') |>
+# since full time during summer is 6 credit hours, we give full weight to fall and spring terms (1) and half weight to summer terms (0.5)
+  mutate(term_weight = case_when(term %in% c('2022SU','2023SU','2024SU')
+                                 ~ 0.5,
+                                 .default = 1)) |>
+  select(Program, student_id, term_weight, credits_earned_institutional_term) |>
+  mutate(credits_earned_institutional_term = case_when(is.na(credits_earned_institutional_term) ~ 0,
+          .default = credits_earned_institutional_term)) |>
+  group_by(Program, student_id) |>
+  summarize(total_terms = sum(term_weight),
+            credits_earned_institutional_term = sum(credits_earned_institutional_term)) |>
+mutate(credits_per_term = credits_earned_institutional_term/total_terms)
+
+
+
+#select only aows students
+aows_credits <- credits |>
+  filter(Program == 'AOWS')
+
+
+# plot histogram of credits earned per term
+ggplot(aows_credits, 
+         aes(x = credits_per_term)) +
+    geom_histogram(fill = '#E1251B',
+                   color = 'black',
+                   binwidth = 1) +
+    geom_vline(xintercept = 12, size = 1, linetype = 'dotted') +
+    labs(x = 'Average credits earned per term', y = 'Number of students') +
+    theme_classic(base_size = 16) +
+    theme(legend.position = 'none',
+          plot.title = element_text(hjust = 0.5)) +
+  theme_classic(base_size = 16)
+
+
+#compare credits per term between AOWS and non-AOWS
+
+credits_comp <- credits |>
+  group_by(Program) |>
+  summarise(avg_credits = mean(credits_per_term))
+
+
+ggbarplot(credits_comp, x = 'Program', y = 'avg_credits', fill = 'Program', label = TRUE, lab.nb.digits = 2) +
+  scale_fill_manual(values = c('#E1251B', '#E3E1DB'), labels = c('AOWS', 'Non-AOWS (District-wide)')) +
+  labs(x = "Program",
+       y = 'Average credits per term',
+       title = 'AOWS students earn credits at higher rates than non-AOWS students. ') +
+  theme_bw(base_size = 12.5) +
+  theme(legend.position = 'bottom') +
+  coord_cartesian(ylim = c(0,8))
+
+```
+
+```{r full time percent per term, fig.align = 'center'}
+
+ftpt <- terms |>
+  filter(student_id %in% aows_ids &
+         term %in% c('2022SP', '2022SU', '2022FA',
+                     '2023SP', '2023SU', '2023FA',
+                     '2024SP', '2024SU') &
+         full_or_part_time != 'Not Enrolled') |>
+  group_by(term_order, full_or_part_time) |>
+  tally()
+
+# calculate total number of students enrolled each term
+ftpt_students <- terms |>
+  filter(student_id %in% aows_ids &
+         term %in% c('2022SP', '2022SU', '2022FA',
+                     '2023SP', '2023SU', '2023FA',
+                     '2024SP', '2024SU') &
+         full_or_part_time != 'Not Enrolled') |>
+  group_by(term_order) |>
+  tally() 
+
+#proportion of students full time or part time each semester
+ftpt_props <- left_join(ftpt, ftpt_students, by = 'term_order')
+
+ftpt_props <- ftpt_props |>
+  mutate(prop = n.x/n.y)
+
+
+  
+# time series of part-time
+
+pt_props <- ftpt_props |>
+  filter(full_or_part_time == 'Part-Time')
+
+pt_props$term_order <- as.factor(pt_props$term_order)
+levels(pt_props$term_order) <- c('2022SP','2022SU', '2022FA',
+                     '2023SP', '2023SU', '2023FA',
+                     '2024SP', '2024SU')
+
+ggplot(pt_props, aes(x = term_order, y = prop, group = 1)) +
+  geom_line(linewidth = 0.75) +
+  geom_point(size = 4, pch = 21, color = 'black', fill = '#E1251B') +
+  
+  yscale("percent", .format = TRUE) +
+  labs(x = NULL,
+       y = 'Percent',
+       title = 'Proportion of AOWS students enrolled part-time') +
+  theme_classic(base_size = 16)
+```
+
+------------------------------------------------------------------------
+
+#### \* *90% of participants will graduate.*
+
+191 AS degrees were awarded to AOWS participants over the course of the program.
+
+```{r AS degrees, fig.align = 'center'}
+all_degrees <- degrees |>
+  filter(term %in% c('2022SP', '2022SU', '2022FA',
+                     '2023SP', '2023SU', '2023FA',
+                     '2024SP', '2024SU') &
+           awarded_degree == 'AS')
+
+# calculate AS degrees awarded to AOWS students each term
+
+aows_degs <- all_degrees |>
+  filter(Program == 'AOWS') |>
+  group_by(term_order) |>
+  tally()
+  
+# time series of degrees awarded
+
+aows_degs$term_order <- as.factor(aows_degs$term_order)
+levels(aows_degs$term_order) <- c('2022SP','2022SU', '2022FA',
+                     '2023SP', '2023SU', '2023FA',
+                     '2024SP', '2024SU')
+
+ggplot(aows_degs, aes(x = term_order, y = n, group = 1)) +
+  geom_line(linewidth = 0.75) +
+  geom_point(size = 4, pch = 21, color = 'black', fill = '#E1251B') +
+    labs(x = NULL,
+       y = 'Number of degrees',
+       title = 'Number of AS degrees awarded per term') +
+  theme_classic(base_size = 16)
+
+
+#calculate number of students by starting year
+sy <- students |>
+      filter(latest_credit_academic_program == 'Associate in Science') |>
+      mutate(first_credit_year_order = case_when(first_credit_year_order <= 2018 ~ 
+                                               '2018 or earlier',
+                                             .default = as.factor(first_credit_year_order))) |>
+  group_by(Program, first_credit_year_order) |>
+  tally()
+
+
+#calculate number of AS degrees awarded to students by starting year
+degs_sy <- all_degrees |>
+        mutate(first_credit_year_order = case_when(first_credit_year_order <= 2018 ~ 
+                                               '2018 or earlier',
+                                             .default =    as.factor(first_credit_year_order))) |>
+  group_by(Program, first_credit_year_order) |>
+  tally()
+
+
+#calculate proportion of students w/ AS degree by starting year
+aows_degs_prop <- left_join(sy, degs_sy, by = c('Program','first_credit_year_order')) |>
+  mutate(prop = n.y/n.x) |>
+  filter(!(first_credit_year_order %in% c('2023', '2024')))
+
+
+ggbarplot(aows_degs_prop, x = 'first_credit_year_order', y = 'prop',
+          label = scales::percent(aows_degs_prop$prop, accuracy = 1),
+          position = position_dodge(width = 0.7), 
+          fill = 'Program') +
+   scale_fill_manual(values = c('#E1251B', '#E3E1DB'), labels = c('AOWS', 'Non-AOWS (District-wide)')) +
+  labs(x = "Student's Starting Year",
+       y = NULL,
+       title = 'Percent of AS Students Who Earned AS Degree') +
+  theme_bw(base_size = 16) +
+  yscale("percent", .format = TRUE) +
+  theme(legend.position = 'bottom') +
+  coord_cartesian(ylim = c(0, 0.7))
+```
+
+***
+
+#### \* *70% of participants will transfer.*
+
+183 AOWS participants transferred to 4 year institutions over the course of the program. AOWS students transferred to 62 unique schools across the country, but mostly in Chicago. On average, the transfer rate for AOWS students was lower than non-AOWS students.
+```{r transfer, fig.align = 'center'}
+
+#identify students who transferred during the AOWS program
+transfers <- nsc |>
+  filter(enrollment_begin_term %in% c('2022SP', '2022SU', '2022FA',
+                               '2023SP', '2023SU', '2023FA',
+                               '2024SP', '2024SU')) |>
+  group_by(student_id) |>
+  mutate(transfer = any(x2_or_4_year_school == '4 year or higher institution')) |>
+  filter(transfer == TRUE) 
+
+nsc_ids <- transfers |>
+  select(student_id) |>
+  unique()
+
+#group transfers by starting year
+transfer_students <- students |>
+  filter(student_id %in% nsc_ids$student_id &
+         latest_credit_academic_program == 'Associate in Science') |>
+    mutate(first_credit_year_order = case_when(first_credit_year_order <= 2018 ~ 
+                                               '2018 or earlier',
+                                             .default = as.factor(first_credit_year_order))) |>
+  group_by(Program, first_credit_year_order) |>
+  tally() 
+
+
+
+
+#calculate proportion of students who transferred by starting year
+transfer_prop <- left_join(sy, transfer_students, by = c('Program','first_credit_year_order')) |>
+  mutate(prop = n.y/n.x) 
+
+# number of AOWS students who transferred
+aows_transfer_prop <- transfer_prop |>
+  filter(Program == 'AOWS')
+
+ggbarplot(aows_transfer_prop, x = 'first_credit_year_order', y = 'n.y',
+          label = TRUE,
+          fill = '#E1251B') +
+  labs(x = "Student's Starting Year",
+       y = NULL,
+       title = 'Number of AOWS Students Who Transferred') +
+  theme_bw(base_size = 16) 
+
+#identify schools AOWS students transferred to
+aows_transfers <- transfers |>
+  filter(Program == 'AOWS' &
+           x2_or_4_year_school == '4 year or higher institution') |>
+  select(student_id,
+         school_name)
+
+aows_transfers <- unique(aows_transfers)
+
+
+#count number of unique schools
+length(unique(aows_transfers$school_name))
+
+#count number of students who transferred to each school
+schools <- aows_transfers |>
+  group_by(school_name) |>
+  summarize(count = n()) 
+
+ggbarplot(schools, x = 'school_name', y = 'count',
+          fill = 'school_name',
+          label = TRUE,
+          sort.val = 'asc',
+          sort.by.groups = FALSE,
+          orientation = 'horiz', lab.vjust = 0.5, lab.hjust = -0.15) +
+  theme_bw(base_size = 8) +
+  theme(legend.position = 'none') +
+  labs(x = NULL, title = 'AOWS Transfer Institutions',
+       y = 'Number of transfers') +
+  coord_flip()
+
+
+
+#comparing transfer rates between AOWS and non-AOWS
+ggbarplot(transfer_prop, x = 'first_credit_year_order', y = 'prop',
+          label = scales::percent(transfer_prop$prop, accuracy = 1),
+          position = position_dodge(width = 0.7), 
+          fill = 'Program') +
+   scale_fill_manual(values = c('#E1251B', '#E3E1DB'), labels = c('AOWS', 'Non-AOWS (District-wide)')) +
+  labs(x = "Student's Starting Year",
+       y = NULL,
+       title = 'Percent of AS Students Who Transferred') +
+  theme_bw(base_size = 16) +
+  yscale("percent", .format = TRUE) +
+  theme(legend.position = 'bottom') +
+  coord_cartesian(ylim = c(0, 0.4))
+```
+
+***
+
+#### \* *90% of participants will express interest in pursuing a STEM degree and career.*
+
+86% of transferring AOWS students indicated they planned to major in a STEM field, and 89% of AOWS participants indicated they were interested in pursuing an advanced degree in STEM. 73% of AOWS participants indicated that they are either currently working in a STEM field or plan to pursue a career in a STEM field.
+
+
+#### \* *Upon degree completion, 80% of cohort indicates that their needs for technology and support services were met.*
+86% of AOWS students indicated that their needs for technology and support services were met.
+
+
+
+#### \* *85% of cohort students are aware of DoD career opportunities.*
+80% of students stated that the AOWS program helped make them aware of DoD career opportunities.
+
+#### \* *85% of students report greater confidence in their research and analytical skills.*
+79% of students stated that the AOWS program gave them greater confidence in their research and analytical skills.
+
+```{r exit survey, fig.align = 'center'}
+
+#question 2
+q2 <- exit |>
+  select(2:9)
+
+names(q2) <- c(
+  q2_1 = "Participating in the AOWS program helped me become more confident in my research and analytical skills.",
+  q2_2 = "My needs for technology and support services were met while I was in the program.",
+  q2_3 = "The program helped me understand real-world applications of the material I learned in STEM classes.",
+  q2_4 = "The program helped me obtain hands-on STEM experience through research, internships, and/or project-based activities.",
+  q2_5 = "The program helped make me aware of STEM career opportunities.",
+  q2_6 = "The program helped make me aware of STEM career opportunities with the U.S. Department of Defense.",
+  q2_7 = "The program helped me persist as a student pursuing a career in STEM.",
+  q2_8 = "The coursework and the program workshops helped me see the contributions of women and people of color in STEM fields.")
+
+q2_levels <- c("Strongly disagree", 
+               "Disagree", 
+               "Neither agree nor disagree", 
+               "Somewhat agree", 
+               "Strongly agree")
+
+q2 <- q2 |>
+  mutate_all(factor, levels = q2_levels)
+
+q2 <- as.data.frame(q2)
+
+lq2 <- likert(q2)
+
+plot(lq2,
+     include.histogram = TRUE)
+
+# question 3 --------------------------------------------------------------
+
+q3 <- exit |>
+  select(10:15)
+
+names(q3) <- c(
+  q3_1 = "Academic Advising",
+  q3_2 = "Career Advising",
+  q3_3 = "Internship and Research Opportunities",
+  q3_4 = "Other programming (STEMulate Talks, etc.)",
+  q3_5 = "Technology Stipends",
+  q3_6 = "Transfer Services")
+
+q3_levels <- c("Very dissatisfied", 
+               "Dissatisfied", 
+               "Neutral", 
+               "Satisfied", 
+               "Very satisfied")
+
+q3 <- q3 |>
+  mutate_all(factor, levels = q3_levels)
+
+q3 <- as.data.frame(q3)
+
+lq3 <- likert(q3)
+
+plot(lq3,
+     include.histogram = TRUE)
+
+
+
+# question 6 --------------------------------------------------------------
+
+q6 <- exit |>
+  select(q6) |>
+  group_by(q6) |>
+  tally() |>
+  filter(!is.na(q6))
+
+ggbarplot(data = q6, x = 'q6', y = 'n', orientation = 'horiz', 
+          fill = 'q6', palette = 'Reds', label = TRUE) +
+  labs(title = 'Have you applied to a four-year college or university?',
+       x = NULL,
+       y = 'Number of Students') +
+  theme(legend.position = 'none')
+
+
+# question 10 -------------------------------------------------------------
+
+q10 <- exit |>
+  select(q10) |>
+  group_by(q10) |>
+  tally() |>
+  filter(!is.na(q10))
+
+ggbarplot(data = q10, x = 'q10', y = 'n', orientation = 'horiz', 
+          fill = 'q10', palette = 'Reds', label = TRUE) +
+  labs(title = 'Do you plan to major in a STEM field at the four-year college or university that you will attend?',
+       x = NULL,
+       y = 'Number of Students') +
+  theme(legend.position = 'none')
+
+# question 11 --------------------------------------------------------------
+
+q11 <- exit |>
+  select(q11)
+
+names(q11) <- c(
+  q11_1 = "How likely are you to pursue an advanced degree (master's or PhD) in a STEM field?")
+
+q11_levels <- c("Very unlikely", 
+                "Unlikely", 
+                "Unsure", 
+                "Somewhat likely", 
+                "Very likely")
+
+q11 <- q11 |>
+  mutate_all(factor, levels = q11_levels)
+
+q11 <- as.data.frame(q11)
+
+lq11 <- likert(q11)
+
+plot(lq11,
+     include.histogram = TRUE)
+
+# question 25 -------------------------------------------------------------
+
+q25 <- exit |>
+  select(q25)
+
+names(q25) <- c(
+  q25_1 = "Please rate your experience with applying to a four-year college or university.")
+
+q25_levels <- c("Very difficult", 
+                "Somewhat difficult", 
+                "Neither difficult nor easy", 
+                "Somewhat easy", 
+                "Very easy")
+
+q25 <- q25 |>
+  mutate_all(factor, levels = q25_levels)
+
+q25 <- as.data.frame(q25)
+
+lq25 <- likert(q25)
+
+plot(lq25,
+     include.histogram = TRUE)
+
+
+# question 20 -------------------------------------------------------------
+
+q20 <- exit |>
+  select(q20) |>
+  group_by(q20) |>
+  tally() |>
+  filter(!is.na(q20))
+
+ggbarplot(data = q20, x = 'q20', y = 'n', orientation = 'horiz', 
+          fill = 'q20', palette = 'Reds', label = TRUE) +
+  labs(title = 'Are you currently employed?',
+       x = NULL,
+       y = 'Number of Students') +
+  theme(legend.position = 'none')
+
+
+# question 5 --------------------------------------------------------------
+
+q5 <- exit |>
+  select(q5) |>
+  group_by(q5) |>
+  tally() |>
+  filter(!is.na(q5))
+
+ggbarplot(data = q5, x = 'q5', y = 'n', orientation = 'horiz', 
+          fill = 'q5', palette = 'Reds', label = TRUE) +
+  labs(title = 'Do you plan to pursue a career in a STEM field?',
+       x = NULL,
+       y = 'Number of Students') +
+  theme(legend.position = 'none')
+
+
+# q22 ---------------------------------------------------------------------
+
+q22 <- exit |>
+  select(q22) |>
+  group_by(q22) |>
+  tally() |>
+  filter(!is.na(q22))
+
+ggbarplot(data = q22, x = 'q22', y = 'n', orientation = 'horiz', 
+          fill = 'q22', palette = 'Reds', label = TRUE) +
+  labs(title = 'Are you working in a STEM field?',
+       x = NULL,
+       y = 'Number of Students') +
+  theme(legend.position = 'none')
+
+# q23 ---------------------------------------------------------------------
+
+q23 <- exit |>
+  select(q23) |>
+  group_by(q23) |>
+  tally() |>
+  filter(!is.na(q23))
+
+ggbarplot(data = q23, x = 'q23', y = 'n', orientation = 'horiz', 
+          fill = 'q23', palette = 'Reds', label = TRUE) +
+  labs(title = 'Do you plan to pursue a career in a STEM field?',
+       x = NULL,
+       y = 'Number of Students') +
+  theme(legend.position = 'none')
+
+
+```
+
+***
+
+# Objective 2
+
+------------------------------------------------------------------------
+
+
+#### \* *80% of trained faculty will report greater confidence in their instructional methods.*
+
+100% of trained faculty reported greater confidence in their instructional methods.
+
+```{r pd survey, fig.align = 'center'}
+
+#filter out events that are not Social Justice or ACUE
+pd <- pd |>
+  filter(event %in% c('SJ','ACUE'))
+
+# question 11 --------------------------------------------------------------
+
+q11 <- pd |>
+  select(4) 
+
+names(q11) <- c(
+  q11_1 = "On a scale from 1 to 5, with 5 being the highest score, please rate the overall training.")
+
+q11_levels <- c("1", 
+               "2", 
+               "3", 
+               "4", 
+               "5")
+
+q11 <- q11 |>
+  mutate_all(factor, levels = q11_levels)
+
+q11 <- as.data.frame(q11)
+
+lq11 <- likert(q11)
+
+plot(lq11,
+     include.histogram = TRUE)
+
+# question 13 --------------------------------------------------------------
+
+q13 <- pd |>
+  select(6) 
+
+names(q13) <- c(
+  q13_1 = "How applicable is the training to your current job?")
+
+q13_levels <- c("Very unapplicable", 
+                "Somewhat unapplicable", 
+                "Neither applicable nor unapplicable", 
+                "Somewhat applicable", 
+                "Very applicable")
+
+q13 <- q13 |>
+  mutate_all(factor, levels = q13_levels)
+
+q13 <- as.data.frame(q13)
+
+lq13 <- likert(q13)
+
+plot(lq13,
+     include.histogram = TRUE)
+
+
+# question 15 --------------------------------------------------------------
+
+q15 <- pd |>
+  select(8) 
+
+names(q15) <- c(
+  q15_1 = "How likely is it that you would recommend this training to your colleagues?")
+
+q15_levels <- c("Very unlikely", 
+                "Somewhat unlikely", 
+                "Neither likely nor unlikely", 
+                "Somewhat likely", 
+                "Very likely")
+
+q15 <- q15 |>
+  mutate_all(factor, levels = q15_levels)
+
+q15 <- as.data.frame(q15)
+
+lq15 <- likert(q15)
+
+plot(lq15,
+     include.histogram = TRUE)
+
+
+# question 567 --------------------------------------------------------------
+
+q567 <- pd |>
+  select(14:16) 
+
+names(q567) <- c(
+  q5 = "This professional development activity increased my confidence in my instructional methods.",
+  q6 = "This professional development activity equipped me with new skills and techniques.",
+  q7 = "This professional development activity will help me promote equitable learning outcomes.")
+
+q567_levels <- c("Strongly disagree", 
+                "Somewhat disagree", 
+                "Neither agree nor disagree", 
+                "Somewhat agree", 
+                "Strongly agree")
+
+q567 <- q567 |>
+  mutate_all(factor, levels = q567_levels)
+
+q567 <- as.data.frame(q567)
+
+lq567 <- likert(q567)
+
+plot(lq567,
+     include.histogram = TRUE)
+
+
+```
+ 
+ ***
+ 
+#### \* *5% increase in the proportion of students successfully passing STEM courses.*
+We reached this goal with math, chem, and physics. AOWS students passed at equal rates as non-AOWS students in biology and CIS.
+
+```{r stem courses, fig.align = 'center'}
+
+
+
+# identify AS students ----------------------------------------------
+
+as_classes <- classes |>
+  filter(term %in% c('2022SP', '2022SU', '2022FA',
+                     '2023SP', '2023SU', '2023FA',
+                     '2024SP', '2024SU') &
+           academic_program == 'Associate in Science') 
+
+
+# identify students in intro math courses ----------------------------
+
+math <- as_classes |>
+  filter(subject == 'MATH' &
+         course_number %in% c('118', '121', '125',
+                              '125-1', '140', '143')) |>
+  select(student_id, course_number, Program,
+          term, term_order,
+         detailed_grade, final_grade, total_class_successes)
+
+
+
+# tally successes ----------------------------------------------------
+
+math_success <- math |>
+  filter(total_class_successes != 0) |>
+  select(student_id, Program)
+
+math_success <- unique(math_success)
+
+math_succeeders <- math_success |>
+  group_by(Program) |>
+  tally() |>
+  rename(success = n)
+
+math_nonsuccess <- math |>
+  filter(!(student_id %in% math_success$student_id)) |>
+  select(student_id, Program)
+
+math_nonsuccess <- unique(math_nonsuccess)
+
+math_nonsucceeders <- math_nonsuccess |>
+  group_by(Program) |>
+  tally() |>
+  rename(fail = n)
+
+math_props <- left_join(math_succeeders, math_nonsucceeders, by = 'Program') |>
+  mutate(prop = success/(success + fail))
+
+
+# barplot of math success -------------------------------------------------
+
+ggbarplot(math_props, x = 'Program', y = 'prop', fill = 'Program', 
+          position = position_dodge(width = 0.7), 
+          label = scales::percent(math_props$prop, accuracy = 1)) +
+  scale_fill_manual(values = c('#E1251B', '#E3E1DB'), labels = c('AOWS', 'Non-AOWS (District-wide)')) +
+  labs(x = "Program",
+       y = NULL, 
+       title = 'Percent of Students Who Passed Intro Math') +
+  theme_bw(base_size = 12.5) +
+  theme(legend.position = 'bottom',
+        plot.title = element_text(hjust = 0.5)) +
+  yscale("percent", .format = TRUE) 
+
+
+# identify students in intro bio courses ----------------------------
+
+bio <- as_classes |>
+  filter(subject == 'BIOLOGY' &
+         course_number %in% c('114', '121', '115',
+                              '116')) |>
+  select(student_id, course_number, Program,
+          term, term_order,
+         detailed_grade, final_grade, total_class_successes)
+
+# tally successes ----------------------------------------------------
+
+bio_success <- bio |>
+  filter(total_class_successes != 0) |>
+  select(student_id, Program)
+
+bio_success <- unique(bio_success)
+
+bio_succeeders <- bio_success |>
+  group_by(Program) |>
+  tally() |>
+  rename(success = n)
+
+bio_nonsuccess <- bio |>
+  filter(!(student_id %in% bio_success$student_id)) |>
+  select(student_id, Program)
+
+bio_nonsuccess <- unique(bio_nonsuccess)
+
+bio_nonsucceeders <- bio_nonsuccess |>
+  group_by(Program) |>
+  tally() |>
+  rename(fail = n)
+
+bio_props <- left_join(bio_succeeders, bio_nonsucceeders, by = 'Program') |>
+  mutate(prop = success/(success + fail))
+
+# barplot of bio success --------------------------------------------------
+
+ggbarplot(bio_props, x = 'Program', y = 'prop', fill = 'Program', 
+          position = position_dodge(width = 0.7), 
+          label = scales::percent(bio_props$prop, accuracy = 1)) +
+  scale_fill_manual(values = c('#E1251B', '#E3E1DB'), labels = c('AOWS', 'Non-AOWS (District-wide)')) +
+  labs(x = "Program",
+       y = NULL, 
+       title = 'Percent of Students Who Passed Intro Bio') +
+  theme_bw(base_size = 12.5) +
+  theme(legend.position = 'bottom',
+        plot.title = element_text(hjust = 0.5)) +
+  yscale("percent", .format = TRUE) 
+
+
+
+# identify students in intro chem courses -----------------------------
+
+chem <- as_classes |>
+  filter(subject == 'CHEM' &
+         course_number %in% c('201', '121')) |>
+  select(student_id, course_number, Program,
+          term, term_order,
+         detailed_grade, final_grade, total_class_successes)
+
+# tally successes ----------------------------------------------------
+
+chem_success <- chem |>
+  filter(total_class_successes != 0) |>
+  select(student_id, Program)
+
+chem_success <- unique(chem_success)
+
+chem_succeeders <- chem_success |>
+  group_by(Program) |>
+  tally() |>
+  rename(success = n)
+
+chem_nonsuccess <- chem |>
+  filter(!(student_id %in% chem_success$student_id)) |>
+  select(student_id, Program)
+
+chem_nonsuccess <- unique(chem_nonsuccess)
+
+chem_nonsucceeders <- chem_nonsuccess |>
+  group_by(Program) |>
+  tally() |>
+  rename(fail = n)
+
+chem_props <- left_join(chem_succeeders, chem_nonsucceeders, by = 'Program') |>
+  mutate(prop = success/(success + fail))
+
+# barplot of chem success --------------------------------------------------
+
+ggbarplot(chem_props, x = 'Program', y = 'prop', fill = 'Program', 
+          position = position_dodge(width = 0.7), 
+          label = scales::percent(chem_props$prop, accuracy = 1)) +
+  scale_fill_manual(values = c('#E1251B', '#E3E1DB'), labels = c('AOWS', 'Non-AOWS (District-wide)')) +
+  labs(x = "Program",
+       y = NULL, 
+       title = 'Percent of Students Who Passed Intro Chem') +
+  theme_bw(base_size = 12.5) +
+  theme(legend.position = 'bottom',
+        plot.title = element_text(hjust = 0.5)) +
+  yscale("percent", .format = TRUE) 
+
+
+
+# identify students in intro physics courses -----------------------------
+
+phys <- as_classes |>
+  filter(subject == 'PHYSICS' &
+         course_number %in% c('131')) |>
+  select(student_id, course_number, Program,
+          term, term_order,
+         detailed_grade, final_grade, total_class_successes)
+
+# tally successes ----------------------------------------------------
+
+phys_success <- phys |>
+  filter(total_class_successes != 0) |>
+  select(student_id, Program)
+
+phys_success <- unique(phys_success)
+
+phys_succeeders <- phys_success |>
+  group_by(Program) |>
+  tally() |>
+  rename(success = n)
+
+phys_nonsuccess <- phys |>
+  filter(!(student_id %in% phys_success$student_id)) |>
+  select(student_id, Program)
+
+phys_nonsuccess <- unique(phys_nonsuccess)
+
+phys_nonsucceeders <- phys_nonsuccess |>
+  group_by(Program) |>
+  tally() |>
+  rename(fail = n)
+
+phys_props <- left_join(phys_succeeders, phys_nonsucceeders, by = 'Program') |>
+  mutate(prop = success/(success + fail))
+
+# barplot of phys success --------------------------------------------------
+
+ggbarplot(phys_props, x = 'Program', y = 'prop', fill = 'Program', 
+          position = position_dodge(width = 0.7), 
+          label = scales::percent(phys_props$prop, accuracy = 1)) +
+  scale_fill_manual(values = c('#E1251B', '#E3E1DB'), labels = c('AOWS', 'Non-AOWS (District-wide)')) +
+  labs(x = "Program",
+       y = NULL, 
+       title = 'Percent of Students Who Passed Intro Physics') +
+  theme_bw(base_size = 12.5) +
+  theme(legend.position = 'bottom',
+        plot.title = element_text(hjust = 0.5)) +
+  yscale("percent", .format = TRUE) 
+
+
+# identify students in intro cis courses -----------------------------
+
+cis <- as_classes |>
+  filter(subject == 'CIS' &
+         course_number %in% c('101', '102', '120')) |>
+  select(student_id, course_number, Program,
+          term, term_order,
+         detailed_grade, final_grade, total_class_successes)
+
+# tally successes ----------------------------------------------------
+
+cis_success <- cis |>
+  filter(total_class_successes != 0) |>
+  select(student_id, Program)
+
+cis_success <- unique(cis_success)
+
+cis_succeeders <- cis_success |>
+  group_by(Program) |>
+  tally() |>
+  rename(success = n)
+
+cis_nonsuccess <- cis |>
+  filter(!(student_id %in% cis_success$student_id)) |>
+  select(student_id, Program)
+
+cis_nonsuccess <- unique(cis_nonsuccess)
+
+cis_nonsucceeders <- cis_nonsuccess |>
+  group_by(Program) |>
+  tally() |>
+  rename(fail = n)
+
+cis_props <- left_join(cis_succeeders, cis_nonsucceeders, by = 'Program') |>
+  mutate(prop = success/(success + fail))
+
+# barplot of cis success --------------------------------------------------
+
+ggbarplot(cis_props, x = 'Program', y = 'prop', fill = 'Program', 
+          position = position_dodge(width = 0.7), 
+          label = scales::percent(cis_props$prop, accuracy = 1)) +
+  scale_fill_manual(values = c('#E1251B', '#E3E1DB'), labels = c('AOWS', 'Non-AOWS (District-wide)')) +
+  labs(x = "Program",
+       y = NULL, 
+       title = 'Percent of Students Who Passed Intro CIS') +
+  theme_bw(base_size = 12.5) +
+  theme(legend.position = 'bottom',
+        plot.title = element_text(hjust = 0.5)) +
+  yscale("percent", .format = TRUE) 
+
+
+
+
+
+
+# combine all courses -----------------------------------------------------
+
+all_courses_props <- rbind(math_props, bio_props,
+                           chem_props, phys_props,
+                           cis_props) 
+
+all_courses_props$subject <- c('Math','Math','Bio','Bio','Chem','Chem',
+                               'Phys','Phys','CIS','CIS')
+
+# barplot of STEM course success ------------------------------------------
+
+ggbarplot(all_courses_props, x = 'subject', y = 'prop', fill = 'Program', 
+          position = position_dodge(width = 0.7), 
+          label = scales::percent(all_courses_props$prop, accuracy = 1)) +
+  scale_fill_manual(values = c('#E1251B', '#E3E1DB'), labels = c('AOWS', 'Non-AOWS (District-wide)')) +
+  labs(x = "Course Subject",
+       y = NULL, 
+       title = 'Percent of AS Students Who Passed Intro STEM Courses') +
+  theme_bw(base_size = 12.5) +
+  theme(legend.position = 'bottom',
+        plot.title = element_text(hjust = 0.5)) +
+  yscale("percent", .format = TRUE) +
+  coord_cartesian(ylim = c(0,.7))
+```
+
